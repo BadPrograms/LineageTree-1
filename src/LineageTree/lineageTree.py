@@ -2039,7 +2039,7 @@ class lineageTree:
         delta: callable = None,
         norm: callable = None,
         recompute: bool = False,
-        specific_roots = False
+        specific_roots = [],
     ) -> dict:
         """
         Compute all the pairwise unordered tree edit distances from Zhang 1996 between the trees spawned at time `t`
@@ -2051,9 +2051,8 @@ class lineageTree:
                 of the tree spawned by `n1` and the number of nodes
                 of the tree spawned by `n2` as arguments.
             recompute (bool): if True, forces to recompute the distances (default: False)
-            specific_roots (boole): True or False, If true it will compare sub trees of
-                of specific root else it will compare the sub trees of all the roots.
-
+            specific_roots (list): If list is empty the function will select all the sub lineages
+            for comparison else just the descendants of the elements of the list.
         Returns:
             (dict) a dictionary that maps a pair of cell ids at time `t` to their unordered tree edit distance
         """
@@ -2063,7 +2062,9 @@ class lineageTree:
             return self.uted[t]
         self.uted[t] = {}
         if specific_roots:
-            roots = [i for i in self.time_nodes[t] if self.get_ancestor_at_t(i) in set(specific_roots) ]
+            roots = []
+            for r in specific_roots:
+                roots += self.get_cells_at_t_from_root(r, t)
         else:
             roots = self.time_nodes[t] 
         for n1, n2 in combinations(roots, 2):
@@ -2179,13 +2180,37 @@ class lineageTree:
     #             d[i, j] = c[i, j] + min((d[i-1, j], d[i, j-1], d[i-1, j-1]))
     #     return d[-1, -1], d
 
+    def get_cells_at_t_from_root(self, r: int, t: int = None) -> list:
+            """Returns the list of cells at time `t` that are spawn by the node `r`.
+
+            Args:
+                r (int): id of the spawning node
+                t (int): target time, if None goes as far as possible
+                        (default None)
+
+            Returns:
+                (list) list of nodes at time `t` spawned by `r`
+            """
+            to_do = [r]
+            final_nodes = []
+            while 0<len(to_do):
+                curr = to_do.pop()
+                for next in self[curr]:
+                    if self.time[next] < t:
+                        to_do.append(next)
+                    elif self.time[next] == t:
+                        final_nodes.append(next)
+            return final_nodes
 
     def __getitem__(self, item):
         if isinstance(item, str):
             return self.__dict__[item]
-        elif isinstance(item, int):
-            return self.successor[item]
-        
+        elif np.issubdtype(type(item), np.integer):
+            return self.successor.get(item, [])
+        else:
+            raise KeyError(
+                "Only integer or string are valid key for lineageTree"
+            )
     def first_labelling(self):
         self.labels =  {i:"Enter_Label" for i in self.time_nodes[0]}
 
