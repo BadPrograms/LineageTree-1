@@ -1894,7 +1894,7 @@ class lineageTree:
             {int, float}: dictionary that maps a cell id to its spatial density
         """
         s_vol = 4 / 3.0 * np.pi * th**3
-        time_range = set(range(int(self.t_e)))
+        time_range = set(range(t_b, t_e + 1)).intersection(self.time_nodes)
         for t in time_range:
             idx3d, nodes = self.get_idx3d(t)
             nb_ni = [
@@ -1946,7 +1946,7 @@ class lineageTree:
             )
         return self.th_edges
 
-    def get_ancestor_at_t(self, n: int, time: int = None):
+    def get_ancestor_at_t(self, n: int, time: int=None):
         """
         Find the id of the ancestor of a give node `n`
         at a given time `time`.
@@ -1958,7 +1958,7 @@ class lineageTree:
             time (int): time at which the ancestor has to be found.
                 If `None` the ancestor at the first time point
                 will be found (default `None`)
-
+        
         Returns:
             (int): the id of the ancestor at time `time`,
                 `-1` if it does not exist
@@ -1969,7 +1969,7 @@ class lineageTree:
             time = self.t_b
         t = self.time[n]
         ancestor = n
-        while time < self.time.get(ancestor, -1):
+        while time<self.time.get(ancestor, -1):
             ancestor = self.predecessor.get(ancestor, [-1])[0]
         return ancestor
 
@@ -2039,7 +2039,7 @@ class lineageTree:
         delta: callable = None,
         norm: callable = None,
         recompute: bool = False,
-        specific_roots=None,
+        specific_roots = False
     ) -> dict:
         """
         Compute all the pairwise unordered tree edit distances from Zhang 1996 between the trees spawned at time `t`
@@ -2051,6 +2051,8 @@ class lineageTree:
                 of the tree spawned by `n1` and the number of nodes
                 of the tree spawned by `n2` as arguments.
             recompute (bool): if True, forces to recompute the distances (default: False)
+            specific_roots (boolean): True or False, If true it will compare sub trees of
+                of specific root else it will compare the sub trees of all the roots.
 
         Returns:
             (dict) a dictionary that maps a pair of cell ids at time `t` to their unordered tree edit distance
@@ -2061,18 +2063,14 @@ class lineageTree:
             return self.uted[t]
         self.uted[t] = {}
         if specific_roots:
-            roots = [
-                i
-                for i in self.time_nodes[t]
-                if self.get_ancestor_at_t(i) in set(specific_roots)
-            ]
+            roots = [i for i in self.time_nodes[t] if self.get_ancestor_at_t(i) in set(specific_roots) ]
         else:
-            roots = self.time_nodes[t]
+            roots = self.time_nodes[t] 
         for n1, n2 in combinations(roots, 2):
-            key = tuple(sorted((n1, n2)))
-            self.uted[t][key] = self.unordered_tree_edit_distance(
-                n1, n2, delta=delta, norm=norm
-            )
+                key = tuple(sorted((n1, n2)))
+                self.uted[t][key] = self.unordered_tree_edit_distance(
+                    n1, n2, delta=delta, norm=norm
+                )
         return self.uted[t]
 
     def unordered_tree_edit_distance(
@@ -2110,7 +2108,7 @@ class lineageTree:
                     return 0
                 len_x = times[corres1[x]]
                 len_y = times[corres2[y]]
-                return np.abs(len_x - len_y)
+                return np.abs(len_x - len_y) / (len_x + len_y)
 
         if norm is None or not callable(norm):
 
@@ -2133,7 +2131,7 @@ class lineageTree:
         )
         return uted(
             nodes1, adj1, nodes2, adj2, delta=delta_tmp
-        )  # / max(len(self.get_sub_tree(n1)),len(self.get_sub_tree(n2)))
+        )   / max(len(self.get_sub_tree(n1)),len(self.get_sub_tree(n2)))
 
     # def DTW(self, t1, t2, max_w=None, start_delay=None, end_delay=None,
     #         metric='euclidian', **kwargs):
@@ -2181,249 +2179,15 @@ class lineageTree:
     #             d[i, j] = c[i, j] + min((d[i-1, j], d[i, j-1], d[i-1, j-1]))
     #     return d[-1, -1], d
 
-    def brute_force_register(self):
-        from scipy.spatial import ConvexHull
-
-        def kd_tree(target_time, source_time):
-            source_data = []
-            target_data = []
-            for cell in self.time_nodes[source_time]:
-                source_data.append(list(self.pos[cell]))
-            for cell in self.time_nodes[target_time]:
-                target_data.append(list(self.pos[cell]))
-            target_data = np.array(target_data)
-            source_data = np.array(source_data)
-            hull_source = ConvexHull(source_data)
-            hull_target = ConvexHull(target_data)
-            new_data_source = np.array(hull_source.points)
-            new_data_target = np.array(hull_target.points)
-
-            for simplice in hull_source.simplices:
-                new_data_source = np.append(
-                    new_data_source,
-                    generate_points_in_triangle(
-                        source_data[simplice[0]],
-                        source_data[simplice[1]],
-                        source_data[simplice[2]],
-                        5,
-                    ),
-                    0,
-                )
-            for simplice in hull_target.simplices:
-                new_data_target = np.append(
-                    new_data_target,
-                    generate_points_in_triangle(
-                        target_data[simplice[0]],
-                        target_data[simplice[1]],
-                        target_data[simplice[2]],
-                        5,
-                    ),
-                    0,
-                )
-            kdtree = KDTree(new_data_target)
-            distances, indices = kdtree.query(new_data_source, k=1)
-            return new_data_source, new_data_target[indices]
-
-        def align_point_clouds(target, source):
-            centroid_target = np.mean(target, axis=0)
-            centroid_source = np.mean(source, axis=0)
-            centered_target = target - centroid_target
-            centered_source = source - centroid_source
-            cov_matrix = np.dot(centered_target.T, centered_source)
-            u, _, vh = np.linalg.svd(cov_matrix)
-            rotation_matrix = np.dot(vh.T, u.T)
-            translation_vector = centroid_source - np.dot(
-                rotation_matrix, centroid_target
-            )
-
-            return rotation_matrix, translation_vector
-
-        def generate_points_in_triangle(vertex1, vertex2, vertex3, num_points):
-            """
-            Generate random points uniformly distributed within a 3D triangle.
-
-            Parameters:
-            - vertex1, vertex2, vertex3: The vertices of the triangle (3D points as numpy arrays).
-            - num_points: The number of points to generate.
-
-            Returns:
-            - points: A numpy array containing the generated points inside the triangle.
-            """
-            # Producing barycentric coordinates using the sqrt of points
-            points = np.random.rand(num_points, 2)
-            sqrt_points = np.sqrt(points[:, 0])
-            u = 1 - sqrt_points
-            v = points[:, 1] * sqrt_points
-            w = 1 - u - v
-
-            points_inside_triangle = np.array(
-                [
-                    u[:, np.newaxis] * vertex1
-                    + v[:, np.newaxis] * vertex2
-                    + w[:, np.newaxis] * vertex3
-                ]
-            )
-            points_inside_triangle = points_inside_triangle.reshape(
-                num_points, 3
-            )
-            return points_inside_triangle
-
-        for target_time in range(20, int(self.t_e) - 10):
-            for source_time in range(target_time - 3, target_time):
-                source, target = kd_tree(target_time, source_time)
-                if len(target) > 3:
-                    rotation, t = align_point_clouds(target, source)
-
-                    for cell in self.time_nodes[target_time]:
-                        self.pos[cell] = np.dot(rotation, self.pos[cell]) + t
-
-    def time_register(self):
-        """
-        Time registration of the emryo so it does not move over time, maybe I could add a window.
-        Also the first timepoints should not be moved, so it starts from tp10
-        """
-
-        def sampler(target_time):
-            source = []
-            target = []
-            weights = []
-            for cell in self.time_nodes[target_time - 1]:
-                try:
-                    cell_next = self.successor[cell]
-                    source.append([float(i) for i in self.pos[cell]])
-                    weights.append(1 / (self.spatial_density[cell]) ** 1)
-                    data_div = []
-                    for cell in cell_next:
-                        data_div.append([float(i) for i in self.pos[cell]])
-                    data_div = np.array(data_div)
-                    target.append(np.mean(data_div, axis=0))
-                except:
-                    pass
-            return source, target, weights
-
-        def kd_tree(target_time, source_time):
-            source_data = []
-            target_data = []
-            weights = []
-            for cell in self.time_nodes[source_time]:
-                source_data.append(list(self.pos[cell]))
-                weights.append(1 / (self.spatial_density[cell]) ** 2)
-            for cell in self.time_nodes[target_time]:
-                target_data.append(list(self.pos[cell]))
-            target_data = np.array(target_data)
-            source_data = np.array(source_data)
-            kdtree = KDTree(target_data)
-            distances, indices = kdtree.query(source_data, k=1)
-            weights = np.array(weights)
-            good_corr = distances < 200
-            return (
-                source_data[good_corr],
-                target_data[indices[good_corr]],
-                weights[good_corr],
-            )
-
-        def align_point_clouds(target, weights, source):
-            centroid_target = np.mean(target, axis=0)
-            centroid_source = np.mean(source, axis=0)
-            centered_target = target - centroid_target
-            centered_source = source - centroid_source
-            weighted_centered_source = [
-                weights[i] * centered_source[i] for i in range(len(weights))
-            ]
-            cov_matrix = np.dot(centered_target.T, weighted_centered_source)
-            u, _, vh = np.linalg.svd(cov_matrix)
-            rotation_matrix = np.dot(vh.T, u.T)
-            translation_vector = centroid_source - np.dot(
-                rotation_matrix, centroid_target
-            )
-            return rotation_matrix, translation_vector
-
-        self.compute_spatial_density(th=1200)
-        maximum = 0
-        for key in self.spatial_density:
-            if self.spatial_density[key] > maximum:
-                maximum = self.spatial_density[key]
-        for key in self.spatial_density:
-            self.spatial_density[key] = self.spatial_density[key] / float(
-                maximum
-            )
-        rotation = []
-        t = [0, 0, 0]
-        for _repeat in range(3):
-            for target_time in range(60, int(self.t_e) - 10):
-                # for source_time in range(target_time-4,target_time+4):
-
-                source, target, weights = sampler(target_time)
-                if len(target) > 10:
-                    rotation, t = align_point_clouds(target, weights, source)
-
-                    for cell in self.time_nodes[target_time]:
-                        self.pos[cell] = np.dot(rotation, self.pos[cell]) + t
-                else:
-                    if rotation != []:
-                        for cell in self.time_nodes[target_time]:
-                            self.pos[cell] = (
-                                np.dot(rotation, self.pos[cell]) + t
-                            )
-
-    def orient_embryo(self):
-        """
-        Orient the emrbryo so that the axis of the highest variance is parallel to y-axis
-        """
-        data = np.array(list(self.pos.values()), dtype=float)
-        cells = list(self.pos.keys())
-        centered_data = data - np.mean(data, axis=0)
-        cov = np.dot(centered_data.T, centered_data)
-        eigenvalues, eigenvectors = np.linalg.eig(cov)
-        fpc_index = np.argmax(eigenvalues)
-        self.eigenv = eigenvectors[:, fpc_index]
-        rot_mat = self.rotation_matrix_to_align_vector_with_axis(self.eigenv)
-        data = rot_mat @ data.T
-        correct_neg = np.array(
-            [np.min(data[0]), np.min(data[1]), np.min(data[2])]
-        )
-        data = [i - correct_neg for i in data.T]
-        self.pos = dict(zip(cells, data))
-
-    def rotation_matrix_to_align_vector_with_axis(
-        self, vector, target_axis=None
-    ):
-        if target_axis is None:
-            target_axis = [0, 1, 0]
-        vector = vector / np.linalg.norm(vector)
-        target_axis = target_axis / np.linalg.norm(target_axis)
-
-        # Calculate the rotation axis (cross product)
-        rotation_axis = np.cross(vector, target_axis)
-
-        # Calculate the rotation angle (dot product)
-        dot_product = np.dot(vector, target_axis)
-        rotation_angle = np.arccos(dot_product)
-
-        # Build the rotation matrix using the axis-angle rotation formula
-        c = np.cos(rotation_angle)
-        s = np.sin(rotation_angle)
-        t = 1 - c
-        x, y, z = rotation_axis
-
-        rotation_matrix = np.array(
-            [
-                [t * x * x + c, t * x * y - s * z, t * x * z + s * y],
-                [t * x * y + s * z, t * y * y + c, t * y * z - s * x],
-                [t * x * z - s * y, t * y * z + s * x, t * z * z + c],
-            ]
-        )
-
-        return rotation_matrix
 
     def __getitem__(self, item):
         if isinstance(item, str):
             return self.__dict__[item]
         elif isinstance(item, int):
             return self.successor[item]
-
+        
     def first_labelling(self):
-        self.labels = {i: "Enter_Label" for i in self.time_nodes[0]}
+        self.labels =  {i:"Enter_Label" for i in self.time_nodes[0]}
 
     def __init__(
         self,
@@ -2466,7 +2230,7 @@ class lineageTree:
         self.predecessor = {}
         self.pos = {}
         self.time_id = {}
-        self.labels = {}
+        self.labels={}
         self.time = {}
         self.kdtrees = {}
         self.spatial_density = {}
