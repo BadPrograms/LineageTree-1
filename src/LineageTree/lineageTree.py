@@ -2051,7 +2051,7 @@ class lineageTree:
                 of the tree spawned by `n1` and the number of nodes
                 of the tree spawned by `n2` as arguments.
             recompute (bool): if True, forces to recompute the distances (default: False)
-            specific_roots (boolean): True or False, If true it will compare sub trees of
+            specific_roots (boole): True or False, If true it will compare sub trees of
                 of specific root else it will compare the sub trees of all the roots.
 
         Returns:
