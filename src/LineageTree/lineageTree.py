@@ -2089,7 +2089,7 @@ class lineageTree:
         return self.uted[t]
 
     def unordered_tree_edit_distance(
-        self, n1: int, n2: int, delta: callable = None, norm: callable = None
+        self, n1: int, n2: int, delta: callable = 1, norm: callable = None
     ) -> float:
         """
         Compute the unordered tree edit distance from Zhang 1996 between the trees spawned
@@ -2112,7 +2112,7 @@ class lineageTree:
 
         from edist.uted import uted
 
-        if delta is None or not callable(delta):
+        if delta == 1:
 
             def delta(x, y, corres1, corres2, times):
                 if x is None or y is None:
@@ -2120,7 +2120,7 @@ class lineageTree:
                 len_x = times[corres1[x]]
                 len_y = times[corres2[y]]
                 return np.abs(len_x - len_y) / (len_x + len_y)
-
+        if delta == 2 or not callable(delta):
             def delta2(x, y, corres1, corres2, times):
                 if x is None:
                     return times[corres2[y]]
